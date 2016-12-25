@@ -1,0 +1,138 @@
+#include <BME280_wr.h>
+#include<Math.h>
+
+
+#include "ThingSpeak.h"
+
+
+#include <ESP8266WiFi.h>
+const int  buttonPin = D0;    // the pin that the pushbutton is attached to
+const int ledPin = D1;
+const int alert = D5;// the pin that the LED is attached to
+
+// Variables will change:
+int buttonPushCounter = 0;   // counter for the number of button presses
+int buttonState = 0;         // current state of the button
+int lastButtonState = 0; 
+int m=0;// previous state of the button
+
+
+char ssid[] = "BWH03-EVENT";    //  your network SSID (name)
+char pass[] = "sY3.StLH";   // your network password
+//int status = WL_IDLE_STATUS;
+WiFiClient  client;
+
+unsigned long myChannelNumber = 185429;
+const char * myWriteAPIKey = "XTALV2B44A3RYJWS";
+BME280 bme280;
+const float sea_press = 101325;
+
+void setup() {
+
+  Serial.begin(115200);
+  I2C.begin(2, 0);
+   pinMode(alert, OUTPUT);
+
+  int8_t rslt = bme280.begin();
+  if (rslt) {
+    Serial.println("BME280 Sensor not connected properly ,Please Check your wiring!");
+    while (1);
+  }
+  Serial.println("Init done");
+  //Serial.println(WiFi.localIP());
+  Serial.println(WiFi.localIP());
+
+  //  The below sensor settings can be modified based on user requirement as mentioned in
+  //  "Section 5.5 - Recommended modes of operation" of BME280 datasheet available at,
+  //  https://ae-bst.resource.bosch.com/media/_tech/media/datasheets/BST-BME280_DS001-11.pdf
+  bme280.humidityOverSampling = BME280_OVERSAMP_1X;
+  bme280.pressureOverSampling = BME280_OVERSAMP_1X;
+  bme280.temperatureOverSampling = BME280_OVERSAMP_1X;
+  bme280.standbyDuration = BME280_STANDBY_TIME_1_MS;
+  bme280.filterCoefficient = BME280_FILTER_COEFF_OFF;
+
+  bme280.setSensorConfig(); // Configuring sensor's sampling, filter and standby duration settings
+  bme280.setPowerMode(BME280_NORMAL_MODE); // Sets sensor to NORMAL mode.
+  delay(10); //Wait for the first measurement to complete
+  pinMode(buttonPin, INPUT);
+  // initialize the LED as an output:
+  pinMode(ledPin, OUTPUT);
+  // initialize serial communication:
+
+  ThingSpeak.begin(client);
+}
+
+void loop() {
+
+
+
+  bme280.readSensorData();
+  String data  = "Temperature data : ";
+  data += bme280.temperature;
+  data += ", Pressure data : ";
+  data += bme280.pressure;
+  data += ", Humidity data : ";
+  data += bme280.humidity;
+  float temp = bme280.temperature;
+  float pres = bme280.pressure;
+  float hum = bme280.humidity;
+
+  float alti = ((pow((sea_press / pres), 1 / 5.257) - 1.0) * (temp + 273.15)) / 0.0065;
+
+
+  // read the pushbutton input pin:
+  buttonState = digitalRead(buttonPin);
+
+  // compare the buttonState to its previous state
+  if (buttonState != lastButtonState) {
+    // if the state has changed, increment the counter
+    if (buttonState == HIGH) {
+      // if the current state is HIGH then the button
+      // wend from off to on:
+      buttonPushCounter++;
+      Serial.println("on");
+      Serial.print("number of button pushes:  ");
+      Serial.println(buttonPushCounter);
+    } else {
+      // if the current state is LOW then the button
+      // wend from on to off:
+      Serial.println("off");
+    }
+    // Delay a little bit to avoid bouncing
+    delay(50);
+    // save the current state as the last state,
+    //for next time through the loop
+    lastButtonState = buttonState;
+  }
+
+
+
+  // turns on the LED every four button pushes by
+  // checking the modulo of the button push counter.
+  // the modulo function gives you the remainder of
+  // the division of two numbers:
+  if (buttonPushCounter % 2 == 0) {
+    digitalWrite(ledPin, HIGH);
+  } else {
+    digitalWrite(ledPin, LOW);
+  }
+if (hum < 36){
+  digitalWrite(alert, HIGH);
+  Serial.println("low humidity");
+}
+else{
+  digitalWrite(alert, LOW);
+  Serial.println("high humidity");
+}
+
+m=buttonPushCounter % 2 ;
+  ThingSpeak.setField(1, (float)temp);
+  ThingSpeak.setField(3, (float)hum);
+  ThingSpeak.setField(2, (float)pres);
+   ThingSpeak.setField(4, (float)alti);
+  ThingSpeak.setField(5, (int)m);
+  // Write the fields that you've set all at once.
+  ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+
+  // delay(20000); // ThingSpeak will only accept updates every 15 seconds.
+}
